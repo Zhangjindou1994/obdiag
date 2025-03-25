@@ -18,7 +18,7 @@
 import re
 
 from prettytable import from_db_cursor
-import pymysql as mysql
+import jaydebeapi
 
 
 class OBConnector(object):
@@ -32,19 +32,23 @@ class OBConnector(object):
         ip,
         port,
         username,
+        jarfile,
         password=None,
         database=None,
         timeout=30,
+        driver='com.oceanbase.jdbc.Driver'
+       
     ):
         self.context = context
         self.ip = str(ip)
         self.port = int(port)
         self.username = str(username)
         self.password = str(password)
+        self.jarfile='./oceanbase-client-2.4.3.jar'
         self.timeout = timeout
         self.conn = None
         self.stdio = context.stdio
-        self.database = database
+        self.database = self.user
         self.init()
 
     def init(self):
@@ -64,17 +68,16 @@ class OBConnector(object):
             self.connection.close()
 
     def _connect_db(self):
+        db_url=f'jdbc:oceanbase://{self.host}:{self.port}/{self.database}'
         try:
-            self.conn = mysql.connect(
-                host=self.ip,
-                port=self.port,
-                user=self.username,
-                passwd=self.password,
-                db=self.database,
-                connect_timeout=30,
+            self.conn = jaydebeapi.connect(
+                jclassname=self.driver,
+                url=db_url,
+                driver_args=[self.username,self.password],
+                jars=self.jarfile
             )
             self.stdio.verbose("connect databse ...")
-        except mysql.Error as e:
+        except jaydebeapi.Error as e:
             self.stdio.error("connect OB: {0}:{1} with user {2} failed, error:{3}".format(self.ip, self.port, self.username, e))
             return
         try:
@@ -127,9 +130,11 @@ class OBConnector(object):
             self._connect_db()
         else:
             self.conn.ping(reconnect=True)
-        cursor = self.conn.cursor(mysql.cursors.DictCursor)
+        cursor=self.conn.cursor()
         cursor.execute(sql)
-        return cursor
+        columns=[desc[0] for desc in cursor.description]
+        result=[dict(zip(columns,row)) for row in cursor.fetchall()]
+        return result
 
     def execute_sql_return_cursor(self, sql):
         if self.conn is None:
